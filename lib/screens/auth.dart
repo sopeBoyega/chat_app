@@ -1,5 +1,9 @@
+import 'dart:io';
+
+import 'package:chat_app/widgets/image_picker.dart';
 import 'package:flutter/material.dart';
 import "package:firebase_auth/firebase_auth.dart";
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 final _firebase = FirebaseAuth.instance;
 
@@ -15,31 +19,52 @@ class _AuthScreenState extends State<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   var _enteredEmail;
   var _enteredPassword;
+  late File _selectedImage;
+  var isAuthenticating;
 
   void _sumbit() async {
     final isValid = _formKey.currentState!.validate();
 
-    if (!isValid) {
+    if (!isValid || !isLoggingIn && _selectedImage == null )  {
+      // show error message...
       return;
     }
+
+   
     _formKey.currentState!.save();
 
-  try{  if (isLoggingIn) {
-    final userCredentials =  await  _firebase.signInWithEmailAndPassword(email: _enteredEmail, password: _enteredPassword);
-    } else {
-      
+    try {
+      setState(() {
+        isAuthenticating= true;
+      });
+      if (isLoggingIn) {
+        final userCredentials = await _firebase.signInWithEmailAndPassword(
+          email: _enteredEmail,
+          password: _enteredPassword,
+        );
+      } else {
         final userCredentials = await _firebase.createUserWithEmailAndPassword(
           email: _enteredEmail,
           password: _enteredPassword,
         );
-       
-    }
-  }
-      on FirebaseAuthException catch (error) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message ?? 'Authentication failed')),
-        );
+ 
+       final response = await Supabase.instance.client.storage.from('chat_app').upload('${userCredentials.user!.uid}.jpg', _selectedImage);
+
+       if (response.isNotEmpty)  {
+        final imageUrl = Supabase.instance.client.storage.from("chat_app").getPublicUrl('${userCredentials.user!.uid}.jpg');
+
+        print(imageUrl);
+       }
+      
+      }
+    } on FirebaseAuthException catch (error) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? 'Authentication failed')),
+      );
+      setState(() {
+        isAuthenticating = false;
+      });
     }
   }
 
@@ -73,6 +98,9 @@ class _AuthScreenState extends State<AuthScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          if (!isLoggingIn) UserImagePicker(onPickImage: (pickedImage) {
+                            _selectedImage = pickedImage;
+                          },),
                           TextFormField(
                             decoration: InputDecoration(
                               labelText: 'Email Address',
@@ -106,6 +134,9 @@ class _AuthScreenState extends State<AuthScreen> {
                             },
                           ),
                           SizedBox(height: 12),
+                          if (isAuthenticating)
+                          CircularProgressIndicator(),
+                          if (!isAuthenticating)
                           ElevatedButton(
                             onPressed: _sumbit,
                             style: ElevatedButton.styleFrom(
@@ -115,6 +146,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             ),
                             child: Text(isLoggingIn ? " Login " : 'Sign Up'),
                           ),
+                          if (!isAuthenticating)
                           TextButton(
                             onPressed: () {
                               setState(() {
